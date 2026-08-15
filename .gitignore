@@ -1,7 +1,8 @@
 # Environment
 .env
-.env.*
-!.env.example
+.env.local
+.env.development
+.env.production
 
 # Python
 __pycache__/
@@ -15,13 +16,7 @@ node_modules/
 out/
 
 # Build
-/buildPS C:\Users\Win10\Documents\Projetos\youtube-comments> git init
-fatal: bad config line 1 in file C:/Users/Win10/Documents/Projetos/youtube-comments/.git/config
-PS C:\Users\Win10\Documents\Projetos\youtube-comments> git branch -M main
-fatal: bad config line 1 in file .git/config
-PS C:\Users\Win10\Documents\Projetos\youtube-comments> git status
-fatal: bad config line 1 in file .git/config
-PS C:\Users\Win10\Documents\Projetos\youtube-comments> 
+/build
 
 # Vercel
 .vercel/

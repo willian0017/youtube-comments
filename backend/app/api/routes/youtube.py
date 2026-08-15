@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from googleapiclient.errors import HttpError
 
 from app.schemas.youtube import (
     CommentSearchRequest,
@@ -31,30 +32,57 @@ def get_comments(
     if not video_id:
         raise HTTPException(
             status_code=400,
-            detail="URL do YouTube inválida",
+            detail="URL do YouTube inválida.",
         )
 
-    comments = youtube_service.get_comments(
-        video_id=video_id,
-        max_comments=request.max_comments,
-        order=request.order,
-    )
-    
-    total_found = len(comments)
+    try:
+        comments, total_found = youtube_service.get_comments(
+            video_id=video_id,
+            max_comments=request.max_comments,
+            order=request.order,
+            remove_emoji_only=request.remove_emoji_only,
+            remove_empty=request.remove_empty,
+            remove_links=request.remove_links,
+            remove_duplicates=request.remove_duplicates,
+        )
 
-    filtered_comments = CommentFilter.apply(
-        comments=comments,
-        remove_emoji_only=request.remove_emoji_only,
-        remove_empty=request.remove_empty,
-        remove_links=request.remove_links,
-        remove_duplicates=request.remove_duplicates,
-    )
+    except HttpError as error:
+        status_code = getattr(
+            error.resp,
+            "status",
+            None,
+        )
+
+        if status_code == 403:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Não foi possível acessar os comentários. "
+                    "A API do YouTube pode estar sem cota disponível "
+                    "ou os comentários podem estar indisponíveis."
+                ),
+            )
+
+        if status_code == 404:
+            raise HTTPException(
+                status_code=404,
+                detail="Vídeo não encontrado.",
+            )
+
+        raise HTTPException(
+            status_code=502,
+            detail="Erro ao consultar a API do YouTube.",
+        )
+
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Erro interno ao buscar os comentários.",
+        )
 
     return {
         "video_id": video_id,
         "total_found": total_found,
-        "total_after_filters": len(
-            filtered_comments
-        ),
-        "comments": filtered_comments,
+        "total_after_filters": len(comments),
+        "comments": comments,
     }

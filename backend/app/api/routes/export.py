@@ -17,9 +17,6 @@ router = APIRouter(
 def export_excel(data: dict):
     video_id = data.get("video_id")
     comments = data.get("comments", [])
-    
-    print("VIDEO_ID:", video_id)
-    print("FIRST_COMMENT:", comments[0] if comments else "SEM COMENTÁRIOS")
 
     workbook = Workbook()
 

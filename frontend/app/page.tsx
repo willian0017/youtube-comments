@@ -50,7 +50,7 @@ export default function Home() {
 
     try {
       const response = await fetch(
-        "http://localhost:8000/youtube/comments",
+        `${process.env.NEXT_PUBLIC_API_URL}/youtube/comments`,
         {
           method: "POST",
           headers: {
@@ -540,7 +540,7 @@ export default function Home() {
 
     try {
       const response = await fetch(
-        "http://localhost:8000/export/excel",
+        `${process.env.NEXT_PUBLIC_API_URL}/export/excel`,
         {
           method: "POST",
           headers: {

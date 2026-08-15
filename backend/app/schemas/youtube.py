@@ -1,8 +1,12 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
 class CommentSearchRequest(BaseModel):
-    url: str
+    url: str = Field(
+        min_length=1,
+    )
 
     max_comments: int = Field(
         default=100,
@@ -15,7 +19,10 @@ class CommentSearchRequest(BaseModel):
     remove_links: bool = False
     remove_duplicates: bool = False
 
-    order: str = "relevance"
+    order: Literal[
+        "relevance",
+        "recent",
+    ] = "relevance"
 
 
 class Comment(BaseModel):
