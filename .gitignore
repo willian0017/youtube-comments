@@ -1,0 +1,37 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Next.js
+node_modules/
+.next/
+out/
+
+# Build
+/buildPS C:\Users\Win10\Documents\Projetos\youtube-comments> git init
+fatal: bad config line 1 in file C:/Users/Win10/Documents/Projetos/youtube-comments/.git/config
+PS C:\Users\Win10\Documents\Projetos\youtube-comments> git branch -M main
+fatal: bad config line 1 in file .git/config
+PS C:\Users\Win10\Documents\Projetos\youtube-comments> git status
+fatal: bad config line 1 in file .git/config
+PS C:\Users\Win10\Documents\Projetos\youtube-comments> 
+
+# Vercel
+.vercel/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# TypeScript
+*.tsbuildinfo
