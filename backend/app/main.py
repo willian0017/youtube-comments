@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.youtube import router as youtube_router
+from app.api.routes.export import router as export_router
 
 app = FastAPI(
     title="YouTube Comments API",
@@ -20,6 +21,7 @@ app.add_middleware(
 )
 
 app.include_router(youtube_router)
+app.include_router(export_router)
 
 
 @app.get("/health")

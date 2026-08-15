@@ -11,6 +11,8 @@ import type {
 export default function Home() {
   const [url, setUrl] = useState("");
 
+  const [videoId, setVideoId] = useState("");
+
   const [comments, setComments] =
     useState<Comment[]>([]);
 
@@ -66,13 +68,13 @@ export default function Home() {
       if (!response.ok) {
         throw new Error(
           data.detail ||
-            "Erro ao buscar comentários"
+          "Erro ao buscar comentários"
         );
       }
 
       setComments(data.comments);
-      setTotalFound(data.total_found);
-
+      setTotalFound(data.total_after_filters);
+      setVideoId(data.video_id);
     } catch (error) {
       console.error(error);
 
@@ -137,7 +139,7 @@ export default function Home() {
   const allSelected =
     comments.length > 0 &&
     selectedComments.size ===
-      comments.length;
+    comments.length;
 
 
   return (
@@ -264,8 +266,8 @@ export default function Home() {
                       ...options,
                       order:
                         event.target.value as
-                          | "relevance"
-                          | "recent",
+                        | "relevance"
+                        | "recent",
                     })
                   }
                   className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm outline-none focus:border-red-500"
@@ -426,11 +428,10 @@ export default function Home() {
                 return (
                   <div
                     key={comment.id}
-                    className={`rounded-xl border p-4 transition-all ${
-                      selected
-                        ? "border-red-500/40 bg-red-500/5"
-                        : "border-slate-800/80 bg-slate-900/50 hover:border-slate-700"
-                    }`}
+                    className={`rounded-xl border p-4 transition-all ${selected
+                      ? "border-red-500/40 bg-red-500/5"
+                      : "border-slate-800/80 bg-slate-900/50 hover:border-slate-700"
+                      }`}
                   >
 
                     <div className="flex items-start gap-3">
@@ -455,8 +456,8 @@ export default function Home() {
 
                         {comment.author
                           ? comment.author
-                              .charAt(0)
-                              .toUpperCase()
+                            .charAt(0)
+                            .toUpperCase()
                           : "?"}
 
                       </div>
@@ -507,9 +508,8 @@ export default function Home() {
               </span>
 
               <button
-                disabled={
-                  selectedCount === 0
-                }
+                onClick={exportExcel}
+                disabled={selectedCount === 0}
                 className="rounded-xl bg-green-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Exportar selecionados
@@ -525,6 +525,71 @@ export default function Home() {
 
     </main>
   );
+
+  async function exportExcel() {
+    if (selectedComments.size === 0) {
+      return;
+    }
+
+    const selected = comments.filter((comment) =>
+      selectedComments.has(comment.id)
+    );
+
+    console.log("EXPORT VIDEO ID:", videoId);
+    console.log("EXPORT COMMENTS:", selected);
+
+    try {
+      const response = await fetch(
+        "http://localhost:8000/export/excel",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            video_id: videoId,
+            comments: selected,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+
+        throw new Error(
+          data?.detail || "Erro ao exportar comentários"
+        );
+      }
+
+      const blob = await response.blob();
+
+      const downloadUrl =
+        window.URL.createObjectURL(blob);
+
+      const link =
+        document.createElement("a");
+
+      link.href = downloadUrl;
+      link.download = "youtube-comments.xlsx";
+
+      document.body.appendChild(link);
+
+      link.click();
+
+      link.remove();
+
+      window.URL.revokeObjectURL(downloadUrl);
+
+    } catch (error) {
+      console.error(error);
+
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível exportar os comentários."
+      );
+    }
+  }
 }
 
 

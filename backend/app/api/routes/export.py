@@ -17,6 +17,9 @@ router = APIRouter(
 def export_excel(data: dict):
     video_id = data.get("video_id")
     comments = data.get("comments", [])
+    
+    print("VIDEO_ID:", video_id)
+    print("FIRST_COMMENT:", comments[0] if comments else "SEM COMENTÁRIOS")
 
     workbook = Workbook()
 
@@ -33,7 +36,7 @@ def export_excel(data: dict):
 
     worksheet.append(headers)
 
-    # Estilo do cabeçalho
+    # Cabeçalho
     for cell in worksheet[1]:
         cell.font = Font(bold=True)
         cell.fill = PatternFill(
@@ -47,10 +50,7 @@ def export_excel(data: dict):
     # Comentários
     for comment in comments:
 
-        comment_id = comment.get(
-            "id",
-            "",
-        )
+        comment_id = comment.get("id", "")
 
         comment_url = ""
 
@@ -84,17 +84,15 @@ def export_excel(data: dict):
         ].width = width
 
     # Formatação
-    for row in worksheet.iter_rows(
-        min_row=2
-    ):
+    for row in worksheet.iter_rows(min_row=2):
+
         row[1].alignment = Alignment(
             wrap_text=True,
             vertical="top",
         )
 
-        row[4].hyperlink = row[4].value
-
         if row[4].value:
+            row[4].hyperlink = row[4].value
             row[4].style = "Hyperlink"
 
     worksheet.freeze_panes = "A2"
