@@ -11,7 +11,7 @@ class CommentSearchRequest(BaseModel):
     max_comments: int = Field(
         default=100,
         ge=1,
-        le=10000,
+        le=90000,
     )
 
     remove_emoji_only: bool = True

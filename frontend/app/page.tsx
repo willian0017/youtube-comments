@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Login from "@/components/Login";
 
 import type {
   Comment,
@@ -60,6 +61,7 @@ export default function Home() {
             url,
             ...options,
           }),
+          credentials: "include",
         }
       );
 
@@ -140,6 +142,19 @@ export default function Home() {
     comments.length > 0 &&
     selectedComments.size ===
     comments.length;
+
+  const [authenticated, setAuthenticated] =
+    useState(false);
+
+  if (!authenticated) {
+    return (
+      <Login
+        onLogin={() =>
+          setAuthenticated(true)
+        }
+      />
+    );
+  }
 
 
   return (
@@ -234,7 +249,7 @@ export default function Home() {
                 <input
                   type="number"
                   min={1}
-                  max={10000}
+                  max={90000}
                   value={options.max_comments}
                   onChange={(event) =>
                     setOptions({
@@ -550,6 +565,7 @@ export default function Home() {
             video_id: videoId,
             comments: selected,
           }),
+          credentials: "include",
         }
       );
 

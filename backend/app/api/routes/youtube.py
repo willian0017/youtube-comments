@@ -1,5 +1,14 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Request,
+)
+
 from googleapiclient.errors import HttpError
+from app.core.auth import require_auth
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.schemas.youtube import (
     CommentSearchRequest,
@@ -16,6 +25,9 @@ router = APIRouter(
     tags=["YouTube"],
 )
 
+limiter = Limiter(
+    key_func=get_remote_address
+)
 
 youtube_service = YouTubeService()
 
@@ -23,11 +35,14 @@ youtube_service = YouTubeService()
 @router.post(
     "/comments",
     response_model=CommentSearchResponse,
+    dependencies=[Depends(require_auth)],
 )
+@limiter.limit("10/minute")
 def get_comments(
-    request: CommentSearchRequest,
+    request: Request,
+    search_request: CommentSearchRequest,
 ):
-    video_id = extract_video_id(request.url)
+    video_id = extract_video_id(search_request.url)
 
     if not video_id:
         raise HTTPException(
@@ -38,12 +53,12 @@ def get_comments(
     try:
         comments, total_found = youtube_service.get_comments(
             video_id=video_id,
-            max_comments=request.max_comments,
-            order=request.order,
-            remove_emoji_only=request.remove_emoji_only,
-            remove_empty=request.remove_empty,
-            remove_links=request.remove_links,
-            remove_duplicates=request.remove_duplicates,
+            max_comments=search_request.max_comments,
+            order=search_request.order,
+            remove_emoji_only=search_request.remove_emoji_only,
+            remove_empty=search_request.remove_empty,
+            remove_links=search_request.remove_links,
+            remove_duplicates=search_request.remove_duplicates,
         )
 
     except HttpError as error:

@@ -5,6 +5,8 @@ from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
+from fastapi import APIRouter, Depends
+from app.core.auth import require_auth
 
 
 router = APIRouter(
@@ -13,7 +15,11 @@ router = APIRouter(
 )
 
 
-@router.post("/excel")
+@router.post(
+    "/excel",
+    dependencies=[Depends(require_auth)],
+)
+
 def export_excel(data: dict):
     video_id = data.get("video_id")
     comments = data.get("comments", [])
