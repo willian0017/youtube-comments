@@ -1,4 +1,5 @@
 import secrets
+import os
 
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
@@ -15,6 +16,7 @@ router = APIRouter(
 class LoginRequest(BaseModel):
     password: str
 
+is_production = os.getenv("ENVIRONMENT") == "production"
 
 @router.post("/login")
 def login(
@@ -34,7 +36,7 @@ def login(
         key="youtube_session",
         value="authenticated",
         httponly=True,
-        secure=False,
+        secure=is_production,
         samesite="lax",
         max_age=60 * 60 * 24 * 7,
     )
