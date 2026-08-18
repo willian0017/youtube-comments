@@ -36,8 +36,8 @@ def login(
         key="youtube_session",
         value="authenticated",
         httponly=True,
-        secure=is_production,
-        samesite="lax",
+        secure=True,
+        samesite="none",
         max_age=60 * 60 * 24 * 7,
     )
 
