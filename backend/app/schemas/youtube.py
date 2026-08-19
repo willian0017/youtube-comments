@@ -38,3 +38,8 @@ class CommentSearchResponse(BaseModel):
     total_found: int
     total_after_filters: int
     comments: list[Comment]
+
+
+class CommentJobResponse(BaseModel):
+    job_id: str
+    status: str

@@ -53,6 +53,7 @@ class YouTubeService:
         remove_empty: bool = True,
         remove_links: bool = False,
         remove_duplicates: bool = False,
+        progress_callback=None,
     ):
         valid_comments = []
         total_found = 0
@@ -157,13 +158,15 @@ class YouTubeService:
                 )
 
             for comment in filtered_comments:
+                if len(valid_comments) >= max_comments:
+                    break
+
                 valid_comments.append(comment)
 
-                if (
+            if progress_callback:
+                progress_callback(
                     len(valid_comments)
-                    >= max_comments
-                ):
-                    break
+                )
 
             next_page_token = response.get(
                 "nextPageToken"

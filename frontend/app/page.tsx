@@ -47,11 +47,13 @@ export default function Home() {
 
     setLoading(true);
     setError(null);
+    setComments([]);
     setSelectedComments(new Set());
+    setTotalFound(0);
 
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/youtube/comments`,
+        `${process.env.NEXT_PUBLIC_API_URL}/youtube/comments/start`,
         {
           method: "POST",
           headers: {
@@ -69,14 +71,73 @@ export default function Home() {
 
       if (!response.ok) {
         throw new Error(
-          data.detail ||
-          "Erro ao buscar comentários"
+          typeof data.detail === "string"
+            ? data.detail
+            : "Erro ao iniciar busca."
         );
       }
 
-      setComments(data.comments);
-      setTotalFound(data.total_after_filters);
-      setVideoId(data.video_id);
+      const jobId = data.job_id;
+
+      let finished = false;
+
+      while (!finished) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, 1000)
+        );
+
+        const statusResponse =
+          await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL}/youtube/comments/status/${jobId}`,
+            {
+              method: "GET",
+              credentials: "include",
+            }
+          );
+
+        const statusData =
+          await statusResponse.json();
+
+        if (!statusResponse.ok) {
+          throw new Error(
+            typeof statusData.detail === "string"
+              ? statusData.detail
+              : "Erro ao consultar progresso."
+          );
+        }
+
+        if (statusData.status === "running") {
+          setTotalFound(
+            statusData.processed || 0
+          );
+
+          continue;
+        }
+
+        if (statusData.status === "completed") {
+          setComments(
+            statusData.comments || []
+          );
+
+          setTotalFound(
+            statusData.total_after_filters || 0
+          );
+
+          setVideoId(
+            statusData.video_id
+          );
+
+          finished = true;
+          continue;
+        }
+
+        if (statusData.status === "error") {
+          throw new Error(
+            statusData.error ||
+            "Erro ao buscar comentários."
+          );
+        }
+      }
     } catch (error) {
       console.error(error);
 
@@ -85,7 +146,6 @@ export default function Home() {
           ? error.message
           : "Não foi possível buscar os comentários."
       );
-
     } finally {
       setLoading(false);
     }
@@ -211,7 +271,7 @@ export default function Home() {
               className="rounded-xl bg-red-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-red-600/25 transition-all hover:bg-red-500 disabled:pointer-events-none disabled:opacity-50"
             >
               {loading
-                ? "Buscando..."
+                ? "Buscando comentários..."
                 : "Buscar Comentários"}
             </button>
 
