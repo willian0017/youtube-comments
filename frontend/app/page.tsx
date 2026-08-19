@@ -16,8 +16,12 @@ export default function Home() {
   const [comments, setComments] =
     useState<Comment[]>([]);
 
+  /*
+   * Guarda os comentários selecionados mesmo
+   * quando eles estão em outra página.
+   */
   const [selectedComments, setSelectedComments] =
-    useState<Set<string>>(new Set());
+    useState<Map<string, Comment>>(new Map());
 
   const [loading, setLoading] =
     useState(false);
@@ -25,9 +29,32 @@ export default function Home() {
   const [error, setError] =
     useState<string | null>(null);
 
+  /*
+   * Quantidade processada durante a busca.
+   */
   const [totalFound, setTotalFound] =
     useState(0);
 
+  /*
+   * ID da busca.
+   */
+  const [jobId, setJobId] =
+    useState("");
+
+  /*
+   * Paginação.
+   */
+  const [currentPage, setCurrentPage] =
+    useState(1);
+
+  const [pageSize] = useState(100);
+
+  const [totalComments, setTotalComments] =
+    useState(0);
+
+  /*
+   * Progresso da busca.
+   */
   const [progress, setProgress] =
     useState(0);
 
@@ -44,32 +71,71 @@ export default function Home() {
   const [authenticated, setAuthenticated] =
     useState(false);
 
-  async function loadCommentsPage(
-    jobId: string,
-    page: number
-  ) {
-    const response = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL}/youtube/comments/page/${jobId}?page=${page}&page_size=100`,
-      {
-        credentials: "include",
-      }
+
+  /*
+   * Quantidade total de páginas.
+   */
+  const totalPages =
+    Math.max(
+      1,
+      Math.ceil(
+        totalComments / pageSize
+      )
     );
 
-    const data = await response.json();
 
-    if (!response.ok) {
-      throw new Error(
-        typeof data.detail === "string"
-          ? data.detail
-          : "Erro ao carregar comentários."
+  /*
+   * Carrega uma página específica.
+   *
+   * Não mexemos no loading aqui porque essa
+   * função também é usada depois que a busca
+   * termina.
+   */
+  async function loadCommentsPage(
+    id: string,
+    page: number
+  ) {
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/youtube/comments/page/${id}?page=${page}&page_size=${pageSize}`,
+        {
+          credentials: "include",
+        }
       );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          typeof data.detail === "string"
+            ? data.detail
+            : "Erro ao carregar comentários."
+        );
+      }
+
+      setComments(
+        data.comments || []
+      );
+
+      setTotalComments(
+        data.total || 0
+      );
+
+      setCurrentPage(page);
+
+    } catch (error) {
+      console.error(error);
+
+      throw error;
     }
-
-    setComments(data.comments || []);
-
-    setTotalFound(data.total || 0);
   }
 
+
+  /*
+   * Inicia uma nova busca.
+   */
   async function fetchComments() {
     if (!url.trim()) {
       return;
@@ -77,10 +143,18 @@ export default function Home() {
 
     setLoading(true);
     setError(null);
-    setSelectedComments(new Set());
+
+    /*
+     * Uma nova busca começa sem seleção anterior.
+     */
+    setSelectedComments(new Map());
+
     setTotalFound(0);
+    setTotalComments(0);
     setProgress(0);
     setComments([]);
+    setCurrentPage(1);
+    setJobId("");
 
     try {
       const response = await fetch(
@@ -108,10 +182,17 @@ export default function Home() {
         );
       }
 
-      const jobId = data.job_id;
+      const newJobId =
+        data.job_id;
+
+      setJobId(newJobId);
 
       let completed = false;
 
+      /*
+       * Consulta o progresso até o backend
+       * informar que terminou.
+       */
       while (!completed) {
         await new Promise(
           (resolve) =>
@@ -120,7 +201,7 @@ export default function Home() {
 
         const statusResponse =
           await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL}/youtube/comments/status/${jobId}`,
+            `${process.env.NEXT_PUBLIC_API_URL}/youtube/comments/status/${newJobId}`,
             {
               credentials: "include",
             }
@@ -142,14 +223,19 @@ export default function Home() {
 
         setTotalFound(processed);
 
-        setProgress(
-          Math.min(
-            100,
-            Math.round(
+        const percentage =
+          options.max_comments > 0
+            ? Math.round(
               (processed /
                 options.max_comments) *
               100
             )
+            : 0;
+
+        setProgress(
+          Math.min(
+            100,
+            percentage
           )
         );
 
@@ -165,8 +251,12 @@ export default function Home() {
 
           setProgress(100);
 
+          /*
+           * Depois que terminar, carrega
+           * somente a primeira página.
+           */
           await loadCommentsPage(
-            jobId,
+            newJobId,
             1
           );
         }
@@ -181,6 +271,7 @@ export default function Home() {
           );
         }
       }
+
     } catch (error) {
       console.error(error);
 
@@ -189,59 +280,170 @@ export default function Home() {
           ? error.message
           : "Não foi possível buscar os comentários."
       );
+
     } finally {
       setLoading(false);
     }
   }
 
-  function toggleComment(id: string) {
-    setSelectedComments((current) => {
-      const next = new Set(current);
 
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-
-      return next;
-    });
-  }
-
-  function toggleAll() {
+  /*
+   * Troca de página.
+   */
+  async function changePage(
+    page: number
+  ) {
     if (
-      selectedComments.size ===
-      comments.length
+      !jobId ||
+      page < 1 ||
+      page > totalPages ||
+      page === currentPage
     ) {
-      setSelectedComments(new Set());
       return;
     }
 
+    setLoading(true);
+    setError(null);
+
+    try {
+      await loadCommentsPage(
+        jobId,
+        page
+      );
+
+      /*
+       * Scroll para o início dos resultados.
+       */
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth",
+      });
+
+    } catch (error) {
+      console.error(error);
+
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Erro ao carregar página."
+      );
+
+    } finally {
+      setLoading(false);
+    }
+  }
+
+
+  /*
+   * Seleciona/desseleciona um comentário.
+   *
+   * A seleção fica guardada em um Map global,
+   * então trocar de página não apaga seleção.
+   */
+  function toggleComment(
+    comment: Comment
+  ) {
     setSelectedComments(
-      new Set(
-        comments.map(
-          (comment) => comment.id
-        )
-      )
+      (current) => {
+        const next =
+          new Map(current);
+
+        if (
+          next.has(comment.id)
+        ) {
+          next.delete(comment.id);
+        } else {
+          next.set(
+            comment.id,
+            comment
+          );
+        }
+
+        return next;
+      }
     );
   }
+
+
+  /*
+   * Seleciona/desseleciona todos os comentários
+   * da página atual.
+   */
+  function toggleAll() {
+    setSelectedComments(
+      (current) => {
+        const next =
+          new Map(current);
+
+        const allCurrentPageSelected =
+          comments.length > 0 &&
+          comments.every(
+            (comment) =>
+              next.has(comment.id)
+          );
+
+        if (
+          allCurrentPageSelected
+        ) {
+          /*
+           * Remove somente os comentários
+           * da página atual.
+           */
+          comments.forEach(
+            (comment) => {
+              next.delete(
+                comment.id
+              );
+            }
+          );
+        } else {
+          /*
+           * Adiciona todos os comentários
+           * da página atual.
+           */
+          comments.forEach(
+            (comment) => {
+              next.set(
+                comment.id,
+                comment
+              );
+            }
+          );
+        }
+
+        return next;
+      }
+    );
+  }
+
 
   function handleKeyDown(
     event: React.KeyboardEvent<HTMLInputElement>
   ) {
-    if (event.key === "Enter") {
+    if (
+      event.key === "Enter"
+    ) {
       fetchComments();
     }
   }
+
 
   const selectedCount =
     selectedComments.size;
 
   const allSelected =
     comments.length > 0 &&
-    selectedComments.size ===
-      comments.length;
+    comments.every(
+      (comment) =>
+        selectedComments.has(
+          comment.id
+        )
+    );
 
+
+  /*
+   * Não autenticado.
+   */
   if (!authenticated) {
     return (
       <Login
@@ -252,17 +454,22 @@ export default function Home() {
     );
   }
 
+
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 sm:p-8 md:p-12">
+
       <div className="mx-auto max-w-5xl space-y-8">
 
         {/* HEADER */}
 
         <header className="space-y-2 text-center sm:text-left">
+
           <div className="inline-flex items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-400">
+
             <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
 
             YouTube Extractor
+
           </div>
 
           <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
@@ -273,7 +480,9 @@ export default function Home() {
             Cole a URL de qualquer vídeo para
             buscar e selecionar os comentários.
           </p>
+
         </header>
+
 
         {/* BUSCA */}
 
@@ -285,17 +494,24 @@ export default function Home() {
               type="text"
               value={url}
               onChange={(event) =>
-                setUrl(event.target.value)
+                setUrl(
+                  event.target.value
+                )
               }
-              onKeyDown={handleKeyDown}
+              onKeyDown={
+                handleKeyDown
+              }
               placeholder="https://www.youtube.com/watch?v=..."
               className="w-full flex-1 rounded-xl border border-slate-800 bg-slate-950 px-4 py-3.5 text-sm text-slate-100 outline-none transition-all placeholder:text-slate-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
             />
 
             <button
-              onClick={fetchComments}
+              onClick={
+                fetchComments
+              }
               disabled={
-                loading || !url.trim()
+                loading ||
+                !url.trim()
               }
               className="rounded-xl bg-red-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-red-600/25 transition-all hover:bg-red-500 disabled:pointer-events-none disabled:opacity-50"
             >
@@ -305,6 +521,7 @@ export default function Home() {
             </button>
 
           </div>
+
 
           {/* PROGRESSO */}
 
@@ -343,6 +560,7 @@ export default function Home() {
             </div>
           )}
 
+
           {/* ERRO */}
 
           {error && (
@@ -350,6 +568,7 @@ export default function Home() {
               {error}
             </div>
           )}
+
 
           {/* CONFIGURAÇÕES */}
 
@@ -373,7 +592,9 @@ export default function Home() {
                   type="number"
                   min={1}
                   max={90000}
-                  value={options.max_comments}
+                  value={
+                    options.max_comments
+                  }
                   onChange={(event) =>
                     setOptions({
                       ...options,
@@ -388,6 +609,7 @@ export default function Home() {
 
               </div>
 
+
               {/* ORDEM */}
 
               <div>
@@ -397,14 +619,17 @@ export default function Home() {
                 </label>
 
                 <select
-                  value={options.order}
+                  value={
+                    options.order
+                  }
                   onChange={(event) =>
                     setOptions({
                       ...options,
                       order:
-                        event.target.value as
-                          | "relevance"
-                          | "recent",
+                        event.target
+                          .value as
+                        | "relevance"
+                        | "recent",
                     })
                   }
                   className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm outline-none focus:border-red-500"
@@ -423,6 +648,7 @@ export default function Home() {
               </div>
 
             </div>
+
 
             {/* FILTROS */}
 
@@ -490,6 +716,7 @@ export default function Home() {
 
         </section>
 
+
         {/* RESULTADOS */}
 
         {comments.length > 0 && (
@@ -509,16 +736,22 @@ export default function Home() {
                 <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-500">
 
                   <span>
-                    Encontrados:{" "}
+                    Total:{" "}
                     <strong className="text-slate-300">
-                      {totalFound}
+                      {totalComments.toLocaleString(
+                        "pt-BR"
+                      )}
                     </strong>
                   </span>
 
                   <span>
-                    Página atual:{" "}
+                    Página{" "}
                     <strong className="text-slate-300">
-                      {comments.length}
+                      {currentPage}
+                    </strong>
+                    {" "}de{" "}
+                    <strong className="text-slate-300">
+                      {totalPages}
                     </strong>
                   </span>
 
@@ -533,110 +766,232 @@ export default function Home() {
 
               </div>
 
+
               <button
-                onClick={toggleAll}
-                className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-xs font-medium text-slate-300 transition hover:bg-slate-800"
+                onClick={
+                  toggleAll
+                }
+                disabled={
+                  loading
+                }
+                className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-xs font-medium text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {allSelected
-                  ? "Desmarcar todos"
-                  : "Selecionar todos"}
+                  ? "Desmarcar página"
+                  : "Selecionar página"}
               </button>
 
             </div>
+
 
             {/* COMENTÁRIOS */}
 
             <div className="grid gap-3">
 
-              {comments.map((comment) => {
+              {comments.map(
+                (comment) => {
 
-                const selected =
-                  selectedComments.has(
-                    comment.id
-                  );
+                  const selected =
+                    selectedComments.has(
+                      comment.id
+                    );
 
-                return (
-                  <div
-                    key={comment.id}
-                    className={`rounded-xl border p-4 transition-all ${
-                      selected
-                        ? "border-red-500/40 bg-red-500/5"
-                        : "border-slate-800/80 bg-slate-900/50 hover:border-slate-700"
-                    }`}
-                  >
+                  return (
+                    <div
+                      key={
+                        comment.id
+                      }
+                      className={`rounded-xl border p-4 transition-all ${selected
+                          ? "border-red-500/40 bg-red-500/5"
+                          : "border-slate-800/80 bg-slate-900/50 hover:border-slate-700"
+                        }`}
+                    >
 
-                    <div className="flex items-start gap-3">
+                      <div className="flex items-start gap-3">
 
-                      {/* CHECKBOX */}
+                        {/* CHECKBOX */}
 
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        onChange={() =>
-                          toggleComment(
-                            comment.id
-                          )
-                        }
-                        className="mt-2 h-4 w-4 shrink-0 accent-red-600"
-                      />
+                        <input
+                          type="checkbox"
+                          checked={
+                            selected
+                          }
+                          onChange={() =>
+                            toggleComment(
+                              comment
+                            )
+                          }
+                          className="mt-2 h-4 w-4 shrink-0 accent-red-600"
+                        />
 
-                      {/* AVATAR */}
 
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-800 text-xs font-bold text-slate-300">
+                        {/* AVATAR */}
 
-                        {comment.author
-                          ? comment.author
-                              .charAt(0)
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-800 text-xs font-bold text-slate-300">
+
+                          {comment.author
+                            ? comment.author
+                              .charAt(
+                                0
+                              )
                               .toUpperCase()
-                          : "?"}
-
-                      </div>
-
-                      {/* CONTEÚDO */}
-
-                      <div className="min-w-0 flex-1 space-y-1">
-
-                        <div className="flex items-center justify-between gap-2">
-
-                          <span className="truncate text-sm font-semibold text-slate-200">
-                            {comment.author}
-                          </span>
-
-                          {/* LIKES */}
-
-                          <div className="shrink-0 rounded-md border border-slate-700/50 bg-slate-800/80 px-2 py-0.5 text-xs text-slate-400">
-                            👍 {comment.likes}
-                          </div>
+                            : "?"}
 
                         </div>
 
-                        <p className="break-words whitespace-pre-line text-sm leading-relaxed text-slate-300">
-                          {comment.text}
-                        </p>
+
+                        {/* CONTEÚDO */}
+
+                        <div className="min-w-0 flex-1 space-y-1">
+
+                          <div className="flex items-center justify-between gap-2">
+
+                            <span className="truncate text-sm font-semibold text-slate-200">
+                              {
+                                comment.author
+                              }
+                            </span>
+
+
+                            {/* LIKES */}
+
+                            <div className="shrink-0 rounded-md border border-slate-700/50 bg-slate-800/80 px-2 py-0.5 text-xs text-slate-400">
+                              👍{" "}
+                              {
+                                comment.likes
+                              }
+                            </div>
+
+                          </div>
+
+
+                          <p className="break-words whitespace-pre-line text-sm leading-relaxed text-slate-300">
+                            {
+                              comment.text
+                            }
+                          </p>
+
+                        </div>
 
                       </div>
 
                     </div>
-
-                  </div>
-                );
-              })}
+                  );
+                }
+              )}
 
             </div>
+
+
+            {/* PAGINAÇÃO */}
+
+            {totalPages > 1 && (
+              <div className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-900 p-4 sm:flex-row sm:items-center sm:justify-between">
+
+                <span className="text-xs text-slate-500">
+                  Mostrando{" "}
+                  {(
+                    (currentPage -
+                      1) *
+                    pageSize +
+                    1
+                  ).toLocaleString(
+                    "pt-BR"
+                  )}
+                  {" - "}
+                  {Math.min(
+                    currentPage *
+                    pageSize,
+                    totalComments
+                  ).toLocaleString(
+                    "pt-BR"
+                  )}
+                  {" de "}
+                  {totalComments.toLocaleString(
+                    "pt-BR"
+                  )}
+                </span>
+
+
+                <div className="flex items-center gap-2">
+
+                  <button
+                    onClick={() =>
+                      changePage(
+                        currentPage -
+                        1
+                      )
+                    }
+                    disabled={
+                      currentPage ===
+                      1 ||
+                      loading
+                    }
+                    className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Anterior
+                  </button>
+
+
+                  <span className="min-w-20 text-center text-xs text-slate-400">
+                    Página{" "}
+                    <strong className="text-slate-200">
+                      {
+                        currentPage
+                      }
+                    </strong>
+                    {" / "}
+                    <strong className="text-slate-200">
+                      {
+                        totalPages
+                      }
+                    </strong>
+                  </span>
+
+
+                  <button
+                    onClick={() =>
+                      changePage(
+                        currentPage +
+                        1
+                      )
+                    }
+                    disabled={
+                      currentPage ===
+                      totalPages ||
+                      loading
+                    }
+                    className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Próxima
+                  </button>
+
+                </div>
+
+              </div>
+            )}
+
 
             {/* EXPORTAR */}
 
             <div className="flex flex-col items-stretch justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900 p-4 sm:flex-row sm:items-center">
 
               <span className="text-sm text-slate-400">
-                {selectedCount} comentário(s)
+                {selectedCount.toLocaleString(
+                  "pt-BR"
+                )}{" "}
+                comentário(s)
                 selecionado(s)
               </span>
 
               <button
-                onClick={exportExcel}
+                onClick={
+                  exportExcel
+                }
                 disabled={
-                  selectedCount === 0
+                  selectedCount ===
+                  0 ||
+                  loading
                 }
                 className="rounded-xl bg-green-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -650,20 +1005,29 @@ export default function Home() {
         )}
 
       </div>
+
     </main>
   );
 
+
+  /*
+   * EXPORTAÇÃO
+   *
+   * Agora exporta TODOS os comentários
+   * selecionados, inclusive os selecionados
+   * em páginas anteriores.
+   */
   async function exportExcel() {
-    if (selectedComments.size === 0) {
+    if (
+      selectedComments.size === 0
+    ) {
       return;
     }
 
-    const selected = comments.filter(
-      (comment) =>
-        selectedComments.has(
-          comment.id
-        )
-    );
+    const selected =
+      Array.from(
+        selectedComments.values()
+      );
 
     console.log(
       "EXPORT VIDEO ID:",
@@ -676,31 +1040,39 @@ export default function Home() {
     );
 
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/export/excel`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          body: JSON.stringify({
-            video_id: videoId,
-            comments: selected,
-          }),
-          credentials: "include",
-        }
-      );
+      setError(null);
+
+      const response =
+        await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/export/excel`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              video_id:
+                videoId,
+              comments:
+                selected,
+            }),
+            credentials:
+              "include",
+          }
+        );
 
       if (!response.ok) {
         const data =
           await response
             .json()
-            .catch(() => null);
+            .catch(
+              () => null
+            );
 
         throw new Error(
           data?.detail ||
-          "Erro ao exportar comentários"
+          "Erro ao exportar comentários."
         );
       }
 
@@ -713,14 +1085,19 @@ export default function Home() {
         );
 
       const link =
-        document.createElement("a");
+        document.createElement(
+          "a"
+        );
 
-      link.href = downloadUrl;
+      link.href =
+        downloadUrl;
 
       link.download =
         "youtube-comments.xlsx";
 
-      document.body.appendChild(link);
+      document.body.appendChild(
+        link
+      );
 
       link.click();
 
@@ -731,7 +1108,9 @@ export default function Home() {
       );
 
     } catch (error) {
-      console.error(error);
+      console.error(
+        error
+      );
 
       setError(
         error instanceof Error
@@ -741,6 +1120,7 @@ export default function Home() {
     }
   }
 }
+
 
 /*
  * COMPONENTE DE CHECKBOX
@@ -765,13 +1145,16 @@ function FilterCheckbox({
         checked={checked}
         onChange={(event) =>
           onChange(
-            event.target.checked
+            event.target
+              .checked
           )
         }
         className="h-4 w-4 accent-red-600"
       />
 
-      <span>{label}</span>
+      <span>
+        {label}
+      </span>
 
     </label>
   );
