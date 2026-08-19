@@ -33,13 +33,6 @@ class Comment(BaseModel):
     published_at: str
 
 
-class CommentSearchResponse(BaseModel):
-    video_id: str
-    total_found: int
-    total_after_filters: int
-    comments: list[Comment]
-
-
 class CommentJobResponse(BaseModel):
     job_id: str
     status: str

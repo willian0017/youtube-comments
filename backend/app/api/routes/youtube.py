@@ -5,7 +5,6 @@ from fastapi import (
     Request,
 )
 
-from googleapiclient.errors import HttpError
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -13,12 +12,13 @@ from app.core.auth import require_auth
 
 from app.schemas.youtube import (
     CommentSearchRequest,
-    CommentSearchResponse,
     CommentJobResponse,
 )
 
 from app.services.youtube_url import extract_video_id
-from app.services.comment_job import comment_job_manager
+from app.services.comment_job import (
+    comment_job_manager,
+)
 
 
 router = APIRouter(
@@ -41,6 +41,7 @@ def start_comments_job(
     request: Request,
     search_request: CommentSearchRequest,
 ):
+
     video_id = extract_video_id(
         search_request.url
     )
@@ -82,6 +83,7 @@ def start_comments_job(
 def comments_status(
     job_id: str,
 ):
+
     job = comment_job_manager.get_job(
         job_id
     )
@@ -102,35 +104,41 @@ def comments_status(
     return job
 
 
-@router.post(
-    "/comments",
-    response_model=CommentSearchResponse,
+@router.get(
+    "/comments/page/{job_id}",
     dependencies=[Depends(require_auth)],
 )
-@limiter.limit("10/minute")
-def get_comments_legacy(
-    request: Request,
-    search_request: CommentSearchRequest,
+def comments_page(
+    job_id: str,
+    page: int = 1,
+    page_size: int = 100,
 ):
-    """
-    Mantido temporariamente para compatibilidade.
-    A nova interface deve usar /comments/start.
-    """
 
-    video_id = extract_video_id(
-        search_request.url
-    )
-
-    if not video_id:
+    if page < 1:
         raise HTTPException(
             status_code=400,
-            detail="URL do YouTube inválida.",
+            detail="Página inválida.",
         )
 
-    raise HTTPException(
-        status_code=410,
-        detail=(
-            "A busca direta foi substituída "
-            "pela busca com progresso."
-        ),
+    if page_size < 1 or page_size > 200:
+        raise HTTPException(
+            status_code=400,
+            detail="Tamanho de página inválido.",
+        )
+
+    result = (
+        comment_job_manager
+        .get_comments_page(
+            job_id=job_id,
+            page=page,
+            page_size=page_size,
+        )
     )
+
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Busca não encontrada.",
+        )
+
+    return result

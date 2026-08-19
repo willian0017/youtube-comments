@@ -1,7 +1,14 @@
+import json
+import os
 import threading
 import uuid
 
 from app.services.youtube_service import YouTubeService
+
+
+JOBS_DIR = "/tmp/youtube_comment_jobs"
+
+os.makedirs(JOBS_DIR, exist_ok=True)
 
 
 class CommentJobManager:
@@ -31,7 +38,6 @@ class CommentJobManager:
                 "target": max_comments,
                 "processed": 0,
                 "total_found": 0,
-                "comments": [],
                 "error": None,
             }
 
@@ -54,6 +60,12 @@ class CommentJobManager:
 
         return job_id
 
+    def _get_file_path(self, job_id: str):
+        return os.path.join(
+            JOBS_DIR,
+            f"{job_id}.json",
+        )
+
     def _run_job(
         self,
         job_id: str,
@@ -65,6 +77,7 @@ class CommentJobManager:
         remove_links: bool,
         remove_duplicates: bool,
     ):
+
         self.jobs[job_id]["status"] = "running"
 
         try:
@@ -86,29 +99,68 @@ class CommentJobManager:
                 )
             )
 
+            file_path = self._get_file_path(
+                job_id
+            )
+
+            with open(
+                file_path,
+                "w",
+                encoding="utf-8",
+            ) as file:
+                json.dump(
+                    comments,
+                    file,
+                    ensure_ascii=False,
+                )
+
             with self.lock:
-                self.jobs[job_id]["comments"] = comments
-                self.jobs[job_id]["total_found"] = total_found
-                self.jobs[job_id]["processed"] = len(comments)
-                self.jobs[job_id]["status"] = "completed"
+                self.jobs[job_id][
+                    "status"
+                ] = "completed"
+
+                self.jobs[job_id][
+                    "processed"
+                ] = len(comments)
+
+                self.jobs[job_id][
+                    "total_found"
+                ] = total_found
 
         except Exception as error:
+
             with self.lock:
-                self.jobs[job_id]["status"] = "error"
-                self.jobs[job_id]["error"] = str(error)
+                self.jobs[job_id][
+                    "status"
+                ] = "error"
+
+                self.jobs[job_id][
+                    "error"
+                ] = str(error)
 
     def _update_progress(
         self,
         job_id: str,
         processed: int,
     ):
-        with self.lock:
-            if job_id in self.jobs:
-                self.jobs[job_id]["processed"] = processed
 
-    def get_job(self, job_id: str):
         with self.lock:
-            job = self.jobs.get(job_id)
+
+            if job_id in self.jobs:
+                self.jobs[job_id][
+                    "processed"
+                ] = processed
+
+    def get_job(
+        self,
+        job_id: str,
+    ):
+
+        with self.lock:
+
+            job = self.jobs.get(
+                job_id
+            )
 
             if not job:
                 return None
@@ -118,17 +170,88 @@ class CommentJobManager:
                 "video_id": job["video_id"],
                 "target": job["target"],
                 "processed": job["processed"],
-                "total_found": job["total_found"],
-                "total_after_filters": len(
-                    job["comments"]
-                ),
-                "comments": (
-                    job["comments"]
-                    if job["status"] == "completed"
-                    else []
-                ),
+                "total_found": job[
+                    "total_found"
+                ],
                 "error": job["error"],
             }
+
+    def get_comments_page(
+        self,
+        job_id: str,
+        page: int = 1,
+        page_size: int = 100,
+    ):
+
+        job = self.get_job(job_id)
+
+        if not job:
+            return None
+
+        if job["status"] != "completed":
+            return {
+                "status": job["status"],
+                "comments": [],
+                "total": job["processed"],
+            }
+
+        file_path = self._get_file_path(
+            job_id
+        )
+
+        if not os.path.exists(file_path):
+            return None
+
+        with open(
+            file_path,
+            "r",
+            encoding="utf-8",
+        ) as file:
+            comments = json.load(file)
+
+        start = (
+            page - 1
+        ) * page_size
+
+        end = start + page_size
+
+        return {
+            "status": "completed",
+            "comments": comments[
+                start:end
+            ],
+            "total": len(comments),
+            "page": page,
+            "page_size": page_size,
+            "video_id": job["video_id"],
+        }
+
+    def get_all_comments(
+        self,
+        job_id: str,
+    ):
+
+        job = self.get_job(job_id)
+
+        if not job:
+            return None
+
+        if job["status"] != "completed":
+            return None
+
+        file_path = self._get_file_path(
+            job_id
+        )
+
+        if not os.path.exists(file_path):
+            return None
+
+        with open(
+            file_path,
+            "r",
+            encoding="utf-8",
+        ) as file:
+            return json.load(file)
 
 
 comment_job_manager = CommentJobManager()

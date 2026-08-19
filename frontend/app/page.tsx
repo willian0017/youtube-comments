@@ -8,7 +8,6 @@ import type {
   SearchOptions,
 } from "@/types/comment";
 
-
 export default function Home() {
   const [url, setUrl] = useState("");
 
@@ -29,6 +28,9 @@ export default function Home() {
   const [totalFound, setTotalFound] =
     useState(0);
 
+  const [progress, setProgress] =
+    useState(0);
+
   const [options, setOptions] =
     useState<SearchOptions>({
       max_comments: 100,
@@ -39,6 +41,34 @@ export default function Home() {
       order: "relevance",
     });
 
+  const [authenticated, setAuthenticated] =
+    useState(false);
+
+  async function loadCommentsPage(
+    jobId: string,
+    page: number
+  ) {
+    const response = await fetch(
+      `${process.env.NEXT_PUBLIC_API_URL}/youtube/comments/page/${jobId}?page=${page}&page_size=100`,
+      {
+        credentials: "include",
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        typeof data.detail === "string"
+          ? data.detail
+          : "Erro ao carregar comentários."
+      );
+    }
+
+    setComments(data.comments || []);
+
+    setTotalFound(data.total || 0);
+  }
 
   async function fetchComments() {
     if (!url.trim()) {
@@ -47,9 +77,10 @@ export default function Home() {
 
     setLoading(true);
     setError(null);
-    setComments([]);
     setSelectedComments(new Set());
     setTotalFound(0);
+    setProgress(0);
+    setComments([]);
 
     try {
       const response = await fetch(
@@ -79,18 +110,18 @@ export default function Home() {
 
       const jobId = data.job_id;
 
-      let finished = false;
+      let completed = false;
 
-      while (!finished) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, 1000)
+      while (!completed) {
+        await new Promise(
+          (resolve) =>
+            setTimeout(resolve, 1000)
         );
 
         const statusResponse =
           await fetch(
             `${process.env.NEXT_PUBLIC_API_URL}/youtube/comments/status/${jobId}`,
             {
-              method: "GET",
               credentials: "include",
             }
           );
@@ -106,32 +137,44 @@ export default function Home() {
           );
         }
 
-        if (statusData.status === "running") {
-          setTotalFound(
-            statusData.processed || 0
-          );
+        const processed =
+          statusData.processed || 0;
 
-          continue;
-        }
+        setTotalFound(processed);
 
-        if (statusData.status === "completed") {
-          setComments(
-            statusData.comments || []
-          );
+        setProgress(
+          Math.min(
+            100,
+            Math.round(
+              (processed /
+                options.max_comments) *
+              100
+            )
+          )
+        );
 
-          setTotalFound(
-            statusData.total_after_filters || 0
-          );
+        if (
+          statusData.status ===
+          "completed"
+        ) {
+          completed = true;
 
           setVideoId(
             statusData.video_id
           );
 
-          finished = true;
-          continue;
+          setProgress(100);
+
+          await loadCommentsPage(
+            jobId,
+            1
+          );
         }
 
-        if (statusData.status === "error") {
+        if (
+          statusData.status ===
+          "error"
+        ) {
           throw new Error(
             statusData.error ||
             "Erro ao buscar comentários."
@@ -151,7 +194,6 @@ export default function Home() {
     }
   }
 
-
   function toggleComment(id: string) {
     setSelectedComments((current) => {
       const next = new Set(current);
@@ -165,7 +207,6 @@ export default function Home() {
       return next;
     });
   }
-
 
   function toggleAll() {
     if (
@@ -185,7 +226,6 @@ export default function Home() {
     );
   }
 
-
   function handleKeyDown(
     event: React.KeyboardEvent<HTMLInputElement>
   ) {
@@ -194,17 +234,13 @@ export default function Home() {
     }
   }
 
-
   const selectedCount =
     selectedComments.size;
 
   const allSelected =
     comments.length > 0 &&
     selectedComments.size ===
-    comments.length;
-
-  const [authenticated, setAuthenticated] =
-    useState(false);
+      comments.length;
 
   if (!authenticated) {
     return (
@@ -216,22 +252,17 @@ export default function Home() {
     );
   }
 
-
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 sm:p-8 md:p-12">
-
       <div className="mx-auto max-w-5xl space-y-8">
 
         {/* HEADER */}
 
         <header className="space-y-2 text-center sm:text-left">
-
           <div className="inline-flex items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-400">
-
             <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
 
             YouTube Extractor
-
           </div>
 
           <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
@@ -242,9 +273,7 @@ export default function Home() {
             Cole a URL de qualquer vídeo para
             buscar e selecionar os comentários.
           </p>
-
         </header>
-
 
         {/* BUSCA */}
 
@@ -277,6 +306,42 @@ export default function Home() {
 
           </div>
 
+          {/* PROGRESSO */}
+
+          {loading && (
+            <div className="mt-5 space-y-2">
+
+              <div className="flex justify-between text-xs text-slate-400">
+
+                <span>
+                  Buscando comentários...
+                </span>
+
+                <span>
+                  {totalFound.toLocaleString(
+                    "pt-BR"
+                  )}{" "}
+                  /{" "}
+                  {options.max_comments.toLocaleString(
+                    "pt-BR"
+                  )}
+                </span>
+
+              </div>
+
+              <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+
+                <div
+                  className="h-full rounded-full bg-red-600 transition-all duration-300"
+                  style={{
+                    width: `${progress}%`,
+                  }}
+                />
+
+              </div>
+
+            </div>
+          )}
 
           {/* ERRO */}
 
@@ -286,7 +351,6 @@ export default function Home() {
             </div>
           )}
 
-
           {/* CONFIGURAÇÕES */}
 
           <div className="mt-6 border-t border-slate-800 pt-6">
@@ -294,7 +358,6 @@ export default function Home() {
             <h2 className="mb-4 text-sm font-semibold text-slate-200">
               Configurações
             </h2>
-
 
             <div className="grid gap-4 sm:grid-cols-2">
 
@@ -325,7 +388,6 @@ export default function Home() {
 
               </div>
 
-
               {/* ORDEM */}
 
               <div>
@@ -341,8 +403,8 @@ export default function Home() {
                       ...options,
                       order:
                         event.target.value as
-                        | "relevance"
-                        | "recent",
+                          | "relevance"
+                          | "recent",
                     })
                   }
                   className="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm outline-none focus:border-red-500"
@@ -362,7 +424,6 @@ export default function Home() {
 
             </div>
 
-
             {/* FILTROS */}
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -381,7 +442,6 @@ export default function Home() {
                 label="Remover comentários somente com emojis"
               />
 
-
               <FilterCheckbox
                 checked={
                   options.remove_empty
@@ -396,7 +456,6 @@ export default function Home() {
                 label="Remover comentários vazios"
               />
 
-
               <FilterCheckbox
                 checked={
                   options.remove_links
@@ -410,7 +469,6 @@ export default function Home() {
                 }
                 label="Remover comentários com links"
               />
-
 
               <FilterCheckbox
                 checked={
@@ -431,7 +489,6 @@ export default function Home() {
           </div>
 
         </section>
-
 
         {/* RESULTADOS */}
 
@@ -459,7 +516,7 @@ export default function Home() {
                   </span>
 
                   <span>
-                    Após filtros:{" "}
+                    Página atual:{" "}
                     <strong className="text-slate-300">
                       {comments.length}
                     </strong>
@@ -476,7 +533,6 @@ export default function Home() {
 
               </div>
 
-
               <button
                 onClick={toggleAll}
                 className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-xs font-medium text-slate-300 transition hover:bg-slate-800"
@@ -487,7 +543,6 @@ export default function Home() {
               </button>
 
             </div>
-
 
             {/* COMENTÁRIOS */}
 
@@ -503,10 +558,11 @@ export default function Home() {
                 return (
                   <div
                     key={comment.id}
-                    className={`rounded-xl border p-4 transition-all ${selected
-                      ? "border-red-500/40 bg-red-500/5"
-                      : "border-slate-800/80 bg-slate-900/50 hover:border-slate-700"
-                      }`}
+                    className={`rounded-xl border p-4 transition-all ${
+                      selected
+                        ? "border-red-500/40 bg-red-500/5"
+                        : "border-slate-800/80 bg-slate-900/50 hover:border-slate-700"
+                    }`}
                   >
 
                     <div className="flex items-start gap-3">
@@ -524,19 +580,17 @@ export default function Home() {
                         className="mt-2 h-4 w-4 shrink-0 accent-red-600"
                       />
 
-
                       {/* AVATAR */}
 
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-800 text-xs font-bold text-slate-300">
 
                         {comment.author
                           ? comment.author
-                            .charAt(0)
-                            .toUpperCase()
+                              .charAt(0)
+                              .toUpperCase()
                           : "?"}
 
                       </div>
-
 
                       {/* CONTEÚDO */}
 
@@ -548,7 +602,6 @@ export default function Home() {
                             {comment.author}
                           </span>
 
-
                           {/* LIKES */}
 
                           <div className="shrink-0 rounded-md border border-slate-700/50 bg-slate-800/80 px-2 py-0.5 text-xs text-slate-400">
@@ -556,7 +609,6 @@ export default function Home() {
                           </div>
 
                         </div>
-
 
                         <p className="break-words whitespace-pre-line text-sm leading-relaxed text-slate-300">
                           {comment.text}
@@ -572,7 +624,6 @@ export default function Home() {
 
             </div>
 
-
             {/* EXPORTAR */}
 
             <div className="flex flex-col items-stretch justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900 p-4 sm:flex-row sm:items-center">
@@ -584,7 +635,9 @@ export default function Home() {
 
               <button
                 onClick={exportExcel}
-                disabled={selectedCount === 0}
+                disabled={
+                  selectedCount === 0
+                }
                 className="rounded-xl bg-green-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Exportar selecionados
@@ -597,7 +650,6 @@ export default function Home() {
         )}
 
       </div>
-
     </main>
   );
 
@@ -606,12 +658,22 @@ export default function Home() {
       return;
     }
 
-    const selected = comments.filter((comment) =>
-      selectedComments.has(comment.id)
+    const selected = comments.filter(
+      (comment) =>
+        selectedComments.has(
+          comment.id
+        )
     );
 
-    console.log("EXPORT VIDEO ID:", videoId);
-    console.log("EXPORT COMMENTS:", selected);
+    console.log(
+      "EXPORT VIDEO ID:",
+      videoId
+    );
+
+    console.log(
+      "EXPORT COMMENTS:",
+      selected
+    );
 
     try {
       const response = await fetch(
@@ -619,7 +681,8 @@ export default function Home() {
         {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type":
+              "application/json",
           },
           body: JSON.stringify({
             video_id: videoId,
@@ -630,23 +693,32 @@ export default function Home() {
       );
 
       if (!response.ok) {
-        const data = await response.json().catch(() => null);
+        const data =
+          await response
+            .json()
+            .catch(() => null);
 
         throw new Error(
-          data?.detail || "Erro ao exportar comentários"
+          data?.detail ||
+          "Erro ao exportar comentários"
         );
       }
 
-      const blob = await response.blob();
+      const blob =
+        await response.blob();
 
       const downloadUrl =
-        window.URL.createObjectURL(blob);
+        window.URL.createObjectURL(
+          blob
+        );
 
       const link =
         document.createElement("a");
 
       link.href = downloadUrl;
-      link.download = "youtube-comments.xlsx";
+
+      link.download =
+        "youtube-comments.xlsx";
 
       document.body.appendChild(link);
 
@@ -654,7 +726,9 @@ export default function Home() {
 
       link.remove();
 
-      window.URL.revokeObjectURL(downloadUrl);
+      window.URL.revokeObjectURL(
+        downloadUrl
+      );
 
     } catch (error) {
       console.error(error);
@@ -668,7 +742,6 @@ export default function Home() {
   }
 }
 
-
 /*
  * COMPONENTE DE CHECKBOX
  */
@@ -679,7 +752,9 @@ function FilterCheckbox({
   label,
 }: {
   checked: boolean;
-  onChange: (value: boolean) => void;
+  onChange: (
+    value: boolean
+  ) => void;
   label: string;
 }) {
   return (
@@ -689,7 +764,9 @@ function FilterCheckbox({
         type="checkbox"
         checked={checked}
         onChange={(event) =>
-          onChange(event.target.checked)
+          onChange(
+            event.target.checked
+          )
         }
         className="h-4 w-4 accent-red-600"
       />
