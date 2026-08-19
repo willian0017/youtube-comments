@@ -1,188 +1,124 @@
-from datetime import date
+from fastapi import APIRouter, HTTPException
 
-from fastapi import HTTPException
-from googleapiclient.discovery import build
+from app.schemas.youtube import (
+    CommentSearchRequest,
+    CommentSearchResponse,
+)
 
-from app.core.config import YOUTUBE_API_KEY
 from app.services.comment_filter import CommentFilter
+from app.services.youtube_service import YouTubeService
+from app.services.youtube_url import extract_video_id
 
 
-class YouTubeService:
+router = APIRouter(
+    prefix="/youtube",
+    tags=["YouTube"],
+)
 
-    DAILY_QUOTA_LIMIT = 2000
 
-    def __init__(self):
-        self.youtube = build(
-            "youtube",
-            "v3",
-            developerKey=YOUTUBE_API_KEY,
+youtube_service = YouTubeService()
+
+
+@router.post(
+    "/comments",
+    response_model=CommentSearchResponse,
+)
+def get_comments(
+    request: CommentSearchRequest,
+):
+    try:
+        video_id = extract_video_id(
+            request.url
         )
 
-        self.quota_used = 0
-        self.quota_date = date.today()
-
-    def _reset_quota_if_needed(self):
-        today = date.today()
-
-        if today != self.quota_date:
-            self.quota_date = today
-            self.quota_used = 0
-
-    def _check_quota(self):
-        self._reset_quota_if_needed()
-
-        if self.quota_used >= self.DAILY_QUOTA_LIMIT:
+        if not video_id:
             raise HTTPException(
-                status_code=429,
-                detail=(
-                    "Limite diário de uso atingido. "
-                    "Tente novamente amanhã."
+                status_code=400,
+                detail="URL do YouTube inválida",
+            )
+
+        print(
+            "ORDER RECEBIDO:",
+            request.order,
+        )
+
+        print(
+            "MAX COMMENTS:",
+            request.max_comments,
+        )
+
+        comments, total_found = (
+            youtube_service.get_comments(
+                video_id=video_id,
+                max_comments=request.max_comments,
+                order=request.order,
+                remove_emoji_only=(
+                    request.remove_emoji_only
+                ),
+                remove_empty=(
+                    request.remove_empty
+                ),
+                remove_links=(
+                    request.remove_links
+                ),
+                remove_duplicates=(
+                    request.remove_duplicates
                 ),
             )
-
-    def _consume_quota(self):
-        self._check_quota()
-        self.quota_used += 1
-
-    def get_comments(
-        self,
-        video_id: str,
-        max_comments: int = 100,
-        order: str = "relevance",
-        remove_emoji_only: bool = True,
-        remove_empty: bool = True,
-        remove_links: bool = False,
-        remove_duplicates: bool = False,
-    ):
-        valid_comments = []
-        total_found = 0
-        seen = set()
-
-        youtube_order = {
-            "relevance": "relevance",
-            "recent": "time",
-        }.get(
-            order,
-            "relevance",
         )
 
-        request = self.youtube.commentThreads().list(
-            part="snippet",
-            videoId=video_id,
-            maxResults=100,
-            order=youtube_order,
+        filtered_comments = (
+            CommentFilter.apply(
+                comments=comments,
+                remove_emoji_only=(
+                    request.remove_emoji_only
+                ),
+                remove_empty=(
+                    request.remove_empty
+                ),
+                remove_links=(
+                    request.remove_links
+                ),
+                remove_duplicates=(
+                    request.remove_duplicates
+                ),
+            )
         )
 
-        while (
-            request
-            and len(valid_comments) < max_comments
-        ):
-            # Cada página do commentThreads.list
-            # custa 1 unidade de quota.
-            self._consume_quota()
+        print(
+            "VIDEO_ID:",
+            video_id,
+        )
 
-            response = request.execute()
+        print(
+            "TOTAL ENCONTRADO:",
+            total_found,
+        )
 
-            items = response.get(
-                "items",
-                [],
-            )
+        print(
+            "TOTAL APÓS FILTROS:",
+            len(filtered_comments),
+        )
 
-            total_found += len(items)
+        return {
+            "video_id": video_id,
+            "total_found": total_found,
+            "total_after_filters": len(
+                filtered_comments
+            ),
+            "comments": filtered_comments,
+        }
 
-            page_comments = []
+    except HTTPException:
+        raise
 
-            for item in items:
-                snippet = item[
-                    "snippet"
-                ][
-                    "topLevelComment"
-                ][
-                    "snippet"
-                ]
+    except Exception as error:
+        print(
+            "ERRO YOUTUBE:",
+            repr(error),
+        )
 
-                page_comments.append({
-                    "id": item["id"],
-                    "author": snippet[
-                        "authorDisplayName"
-                    ],
-                    "text": snippet[
-                        "textDisplay"
-                    ],
-                    "likes": snippet[
-                        "likeCount"
-                    ],
-                    "published_at": snippet[
-                        "publishedAt"
-                    ],
-                })
-
-            filtered_comments = (
-                CommentFilter.apply(
-                    comments=page_comments,
-                    remove_emoji_only=(
-                        remove_emoji_only
-                    ),
-                    remove_empty=(
-                        remove_empty
-                    ),
-                    remove_links=(
-                        remove_links
-                    ),
-                    remove_duplicates=(
-                        remove_duplicates
-                    ),
-                )
-            )
-
-            if remove_duplicates:
-                unique_comments = []
-
-                for comment in filtered_comments:
-                    normalized = (
-                        comment["text"]
-                        .strip()
-                        .lower()
-                    )
-
-                    if normalized in seen:
-                        continue
-
-                    seen.add(normalized)
-                    unique_comments.append(
-                        comment
-                    )
-
-                filtered_comments = (
-                    unique_comments
-                )
-
-            for comment in filtered_comments:
-                valid_comments.append(comment)
-
-                if (
-                    len(valid_comments)
-                    >= max_comments
-                ):
-                    break
-
-            next_page_token = response.get(
-                "nextPageToken"
-            )
-
-            if not next_page_token:
-                break
-
-            request = (
-                self.youtube
-                .commentThreads()
-                .list(
-                    part="snippet",
-                    videoId=video_id,
-                    maxResults=100,
-                    pageToken=next_page_token,
-                    order=youtube_order,
-                )
-            )
-
-        return valid_comments, total_found
+        raise HTTPException(
+            status_code=500,
+            detail=str(error),
+        )
